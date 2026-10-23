@@ -1,0 +1,71 @@
+name: Publish school exhibition
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "*.zip"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Extract school website ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(*.zip)
+          if (( ${#packages[@]} == 0 )); then
+            echo "::error::No ZIP uploaded. Upload motto-yoku-miru-school-github-pages-easy.zip to the repository root."
+            exit 1
+          fi
+          archive="${packages[0]}"
+          if [[ -f "motto-yoku-miru-school-github-pages-easy.zip" ]]; then
+            archive="motto-yoku-miru-school-github-pages-easy.zip"
+          fi
+          echo "Publishing archive: $archive"
+          mkdir -p _unpacked _site
+          unzip -q "$archive" -d _unpacked
+          if [[ -s _unpacked/index.html ]]; then
+            cp -a _unpacked/. _site/
+          elif [[ -s _unpacked/dist/index.html ]]; then
+            cp -a _unpacked/dist/. _site/
+          else
+            found=""
+            while IFS= read -r entry; do
+              found="${entry%/index.html}"
+              break
+            done < <(find _unpacked -type f -path '*/dist/index.html' | sort)
+            if [[ -z "$found" ]]; then
+              echo "::error::ZIP does not contain index.html or dist/index.html."
+              exit 1
+            fi
+            cp -a "$found/." _site/
+          fi
+          test -s _site/index.html
+          touch _site/.nojekyll
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload website
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
